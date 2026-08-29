@@ -1,12 +1,7 @@
 import { create } from 'zustand';
-import { io } from 'socket.io-client';
-import * as api from './api';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const socket = io(API_BASE_URL);
+import { SIMULATIONS, ROLES, QMS_ROLES } from './localData';
 
 export const useSimStore = create((set, get) => ({
-
   qmsScores: {},
   recordQuizScore: (eventId, selectedOptionValue, score, maxScore) => {
     set((state) => ({
@@ -20,170 +15,57 @@ export const useSimStore = create((set, get) => ({
   // =====================================================
   // CORE STATE
   // =====================================================
-
   simulations: [],
   batchState: null,
-
   activePanel: 'vm',
-
   loading: false,
   error: null,
 
-
   // =====================================================
-  // DAY 2 — ALARM / QMS STATE
+  // ALARM / QMS STATE
   // =====================================================
-
   activeEvent: null,
   alarmActive: false,
-
   deviation: null,
   investigation: null,
   capa: null,
   capaFix: null,
   verification: null,
 
-
   // =====================================================
-  // VM ROLE PANELS — 10-role technical step flow
+  // VM ROLE PANELS
   // =====================================================
-
-  // Static definitions (labels/icons/step lists) for all 10 roles.
   roleDefinitions: [],
-
-  // Per-batch progress/lock state for the 10-role grid inside the VM panel.
   batchRoles: [],
-
-  // Which role's dedicated panel is currently open inside the VM panel.
-  // null = showing the role selection grid.
   selectedRoleKey: null,
-
-  // Full detail (stage, operation_data, step log, active alarm) for the
-  // currently open role panel.
   roleDetail: null,
   roleDetailLoading: false,
-
-  // Role 10 — Machine Monitor dashboard data.
   monitorData: null,
 
-
   // =====================================================
-  // QMS ROLE PANELS — 5-role step flow
+  // QMS ROLE PANELS
   // =====================================================
-
-  // Static definitions (labels/icons/responsibilities) for all 5 roles.
   qmsRoleDefinitions: [],
-
-  // Per-batch lock/active/completed state for the 5-role grid inside
-  // the QMS panel.
   qmsBatchRoles: [],
-
-  // Which QMS role's dedicated panel is open inside the QMS panel.
-  // null = showing the 5-role selection grid.
   selectedQmsRoleKey: null,
-
-  // Full detail for the currently open QMS role panel.
   qmsRoleDetail: null,
   qmsRoleDetailLoading: false,
 
-
   // =====================================================
-  // INITIALIZE SOCKET CONNECTION
+  // INITIALIZE LOCAL STORE
   // =====================================================
-
   init: async () => {
-    try {
-      const [simulations, roleDefinitions, qmsRoleDefinitions] = await Promise.all([
-        api.fetchSimulations(),
-        api.fetchAllRoleDefinitions(),
-        api.fetchAllQmsRoleDefinitions(),
-      ]);
-      set({ simulations, roleDefinitions, qmsRoleDefinitions });
-
-      socket.off('batch:update');
-      socket.off('batch:alarm');
-      socket.off('role:update');
-      socket.off('monitor:update');
-      socket.off('qms:roles');
-      socket.off('qms:update');
-      socket.off('vm:capa_ready');
-
-      socket.on('batch:update', (state) => {
-        set({ batchState: state });
-        // Batch-wide state changed (stage completed, batch released...) —
-        // keep both the VM 10-role grid AND the QMS 5-role grid in sync.
-        const batchId = state?.batch?.id;
-        if (batchId) {
-          api.fetchBatchRoles(batchId).then((batchRoles) => set({ batchRoles })).catch(() => {});
-          api.fetchQmsRoles(batchId).then((qmsBatchRoles) => set({ qmsBatchRoles })).catch(() => {});
-        }
-      });
-
-      socket.on('batch:alarm', ({ event }) => {
-        console.log('🚨 ALARM RECEIVED:', event);
-        set({ activeEvent: event, alarmActive: true });
-        get().playAlarmSound();
-        // Refresh QMS panels so the alarm is displayed live
-        get().refreshQmsRoles();
-        get().refreshQmsRoleDetail();
-      });
-
-      socket.on('role:update', ({ roleKey, detail }) => {
-        // Live-refresh an open VM role panel if another client/session
-        // acts on the same batch.
-        if (get().selectedRoleKey === roleKey) {
-          set({ roleDetail: detail });
-        }
-      });
-
-      socket.on('monitor:update', ({ overview }) => {
-        if (get().selectedRoleKey === 'monitor') {
-          set({ monitorData: overview });
-        }
-      });
-
-      // ---- QMS <-> VM live communication channel ----
-      // The 5-role grid's lock/active/completed state changed (an alarm
-      // fired, an assessment was submitted, a CAPA moved forward...).
-      // Refresh the grid, and if the currently open QMS role panel is
-      // affected, refresh its detail too so nobody has to hit refresh.
-      socket.on('qms:roles', ({ qmsRoles }) => {
-        set({ qmsBatchRoles: qmsRoles });
-      });
-
-      socket.on('qms:update', ({ roleKey }) => {
-        const batchId = get().batchState?.batch?.id;
-        if (!batchId) return;
-        if (get().selectedQmsRoleKey === roleKey) {
-          api.fetchQmsRoleDetail(batchId, roleKey).then((qmsRoleDetail) => set({ qmsRoleDetail })).catch(() => {});
-        }
-      });
-
-      // CAPA Coordinator finished preparing the corrective action and
-      // sent it to VM — the VM panel's "Submit Corrected Reading" card
-      // reacts immediately, without the VM operator refreshing anything.
-      socket.on('vm:capa_ready', ({ capa }) => {
-        set({ capa });
-      });
-    } catch (err) {
-      set({
-        simulations: [
-          { id: 'paracetamol-500', name: 'Paracetamol 500 mg' },
-          { id: 'amoxicillin-250', name: 'Amoxicillin 250 mg' },
-          { id: 'ibuprofen-400', name: 'Ibuprofen 400 mg' }
-        ],
-        error: null
-      });
-    }
+    set({
+      simulations: SIMULATIONS,
+      roleDefinitions: ROLES,
+      qmsRoleDefinitions: QMS_ROLES,
+      error: null
+    });
   },
-
 
   // =====================================================
   // ALARM SOUND
   // =====================================================
-  // Synthesized beep (Web Audio API — no external asset needed) so the
-  // alarm is audible, not just visual, matching "the proper alarm must
-  // work" requirement. Plays a short two-tone siren pattern.
   playAlarmSound: () => {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -198,39 +80,189 @@ export const useSimStore = create((set, get) => ({
         osc.frequency.setValueAtTime(freq, now + start);
         gain.gain.setValueAtTime(0.0001, now + start);
         gain.gain.exponentialRampToValueAtTime(0.15, now + start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur - 0.02);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start(now + start);
-        osc.stop(now + start + dur + 0.05);
+        osc.stop(now + start + dur);
       };
 
-      // Two-tone siren, repeated 3 times.
-      for (let i = 0; i < 3; i++) {
-        beep(i * 0.5, 880, 0.22);
-        beep(i * 0.5 + 0.25, 660, 0.22);
-      }
-
-      // AudioContext auto-closes stray connections once GC'd; explicitly
-      // close it after the pattern finishes to avoid leaking contexts.
-      setTimeout(() => ctx.close().catch(() => {}), 2200);
-    } catch {
-      // Audio not available (e.g. autoplay policy blocked it before any
-      // user interaction) — the visual alarm banner still works.
+      // Two-tone siren
+      beep(0.0, 880, 0.25);
+      beep(0.25, 660, 0.25);
+      beep(0.5, 880, 0.25);
+      beep(0.75, 660, 0.25);
+    } catch (e) {
+      console.warn('AudioContext beep failed:', e);
     }
   },
 
+  // =====================================================
+  // HELPER STATE GETTERS
+  // =====================================================
+  getLocalBatchState: () => {
+    return get().batchState;
+  },
+
+  refreshBatchRoles: () => {
+    const state = get().batchState;
+    if (!state) return;
+    const batch = state.batch;
+
+    const updatedBatchRoles = ROLES.map((role) => {
+      if (role.key === 'monitor') {
+        return {
+          key: role.key,
+          order: role.order,
+          title: role.title,
+          icon: role.icon,
+          summary: role.summary,
+          type: 'monitor',
+          status: 'available',
+        };
+      }
+
+      const stage = state.stages.find((s) => s.stage_order === role.order);
+      let status = 'locked';
+      if (stage) {
+        if (stage.status === 'completed') status = 'completed';
+        else if (role.order === batch.current_stage_order) status = 'active';
+        else if (role.order < batch.current_stage_order) status = 'completed';
+        else status = 'locked';
+      }
+
+      return {
+        key: role.key,
+        order: role.order,
+        title: role.title,
+        icon: role.icon,
+        summary: role.summary,
+        type: 'process',
+        status,
+        stageId: stage ? stage.id : null,
+        totalSteps: role.steps.length,
+        currentStep: stage ? stage.current_step : 0,
+      };
+    });
+
+    set({ batchRoles: updatedBatchRoles });
+  },
+
+  refreshQmsRoles: () => {
+    const state = get().batchState;
+    if (!state) return;
+    
+    const activeEvent = get().activeEvent;
+    const deviation = get().deviation;
+    const capa = get().capa;
+    const verification = get().verification;
+
+    const updatedQmsBatchRoles = QMS_ROLES.map((def) => {
+      let status = 'locked';
+      let note = '';
+
+      if (def.key === 'qms_monitor') {
+        status = activeEvent && !activeEvent.reviewed_by_monitor ? 'active' : 'available';
+        note = activeEvent && !activeEvent.reviewed_by_monitor ? 'New event needs triage' : '';
+      } else if (def.key === 'sme') {
+        if (!activeEvent || !activeEvent.reviewed_by_monitor) {
+          status = 'locked';
+          note = 'Waiting on QMS Monitor to triage the event';
+        } else if (!deviation || deviation.significant === null || deviation.significant === undefined) {
+          status = 'active';
+          note = 'Impact Assessment required';
+        } else {
+          status = 'completed';
+          note = deviation.significant ? 'Marked significant' : 'Marked not significant — closed';
+        }
+      } else if (def.key === 'investigation_officer') {
+        if (!deviation || !deviation.significant) {
+          status = 'locked';
+          note = 'Waiting on a significant Impact Assessment';
+        } else if (!deviation.root_cause) {
+          status = 'active';
+          note = 'Root cause investigation required';
+        } else {
+          status = 'completed';
+          note = 'Root cause established';
+        }
+      } else if (def.key === 'capa_coordinator') {
+        if (!deviation || !deviation.root_cause) {
+          status = 'locked';
+          note = 'Waiting on the Investigation Officer’s root cause';
+        } else if (!capa) {
+          status = 'active';
+          note = 'CAPA not yet created';
+        } else if (capa.status === 'verified') {
+          status = 'completed';
+          note = 'Effectiveness verified';
+        } else {
+          status = 'active';
+          note = capa.status === 'failed' ? 'Verification failed — rework' : 'In progress';
+        }
+      } else if (def.key === 'qa_reviewer') {
+        if (!capa || capa.status !== 'verified') {
+          status = 'locked';
+          note = 'Waiting on CAPA effectiveness verification';
+        } else if (!state.qaReviews || state.qaReviews.length === 0 || state.qaReviews[0].decision === 'returned') {
+          status = 'active';
+          note = 'Final review required';
+        } else {
+          status = 'completed';
+          note = 'Approved — batch released';
+        }
+      }
+
+      return {
+        key: def.key,
+        order: def.order,
+        title: def.title,
+        icon: def.icon,
+        summary: def.summary,
+        responsibilities: def.responsibilities,
+        status,
+        note,
+      };
+    });
+
+    set({ qmsBatchRoles: updatedQmsBatchRoles });
+  },
 
   // =====================================================
-  // CREATE NEW BATCH
+  // BATCH CONTROL & TRANSITIONS
   // =====================================================
-
   startNewBatch: async (simulationId) => {
-    set({
-      loading: true,
-      error: null,
+    const config = SIMULATIONS.find((s) => s.id === simulationId) || SIMULATIONS[0];
+    const initialStages = config.stages.map((stage) => ({
+      id: stage.order,
+      batch_id: 1,
+      name: stage.name,
+      stage_order: stage.order,
+      status: stage.order === 1 ? 'active' : 'pending',
+      started_at: stage.order === 1 ? new Date().toISOString() : null,
+      completed_at: null,
+      current_step: 0,
+      operation_data: '{}',
+    }));
 
-      // Clear previous alarm/QMS data
+    const newState = {
+      batch: {
+        id: 1,
+        simulation_id: config.id,
+        status: 'in_process',
+        current_stage_order: 1,
+        created_at: new Date().toISOString(),
+      },
+      stages: initialStages,
+      machine: { status: 'running' },
+      events: [],
+      activityLog: [],
+      stepScores: [],
+      simulationConfig: config,
+    };
+
+    set({
+      batchState: newState,
       activeEvent: null,
       alarmActive: false,
       deviation: null,
@@ -238,689 +270,752 @@ export const useSimStore = create((set, get) => ({
       capa: null,
       capaFix: null,
       verification: null,
-
-      // Clear previous role-panel state so a new batch starts back at
-      // the 10-role selection grid.
       selectedRoleKey: null,
-      roleDetail: null,
-      monitorData: null,
-      batchRoles: [],
-
-      // Clear previous QMS role-panel state.
       selectedQmsRoleKey: null,
-      qmsRoleDetail: null,
-      qmsBatchRoles: [],
+      qmsScores: {}
     });
 
-    try {
-      const state = await api.createBatch(simulationId);
-      const [batchRoles, qmsBatchRoles] = await Promise.all([
-        api.fetchBatchRoles(state.batch.id),
-        api.fetchQmsRoles(state.batch.id),
-      ]);
-      set({ batchState: state, batchRoles, qmsBatchRoles, loading: false });
-    } catch (err) {
-      const fallbackState = {
-        batch: { id: 904, simulation_id: simulationId, status: 'in_process', current_stage_order: 3 },
-        stages: [
-          { id: 1, name: 'Dispensing', stage_order: 1, status: 'completed' },
-          { id: 2, name: 'Milling', stage_order: 2, status: 'completed' },
-          { id: 3, name: 'Granulation', stage_order: 3, status: 'active' },
-          { id: 4, name: 'Drying', stage_order: 4, status: 'pending' },
-          { id: 5, name: 'Blending', stage_order: 5, status: 'pending' },
-          { id: 6, name: 'Compression', stage_order: 6, status: 'pending' },
-          { id: 7, name: 'Coating', stage_order: 7, status: 'pending' },
-          { id: 8, name: 'Inspection', stage_order: 8, status: 'pending' },
-          { id: 9, name: 'Packaging', stage_order: 9, status: 'pending' }
-        ],
-        machine: { status: 'running' }
-      };
-
-      const fallbackBatchRoles = [
-        { key: 'dispensing', title: 'Dispensing Chemist', status: 'completed' },
-        { key: 'milling', title: 'Milling Technician', status: 'completed' },
-        { key: 'granulation', title: 'Granulation Specialist', status: 'active' },
-        { key: 'drying', title: 'Drying Technician', status: 'locked' },
-        { key: 'blending', title: 'Blender Operator', status: 'locked' },
-        { key: 'compression', title: 'Compression Specialist', status: 'locked' },
-        { key: 'coating', title: 'Coating Specialist', status: 'locked' },
-        { key: 'inspection', title: 'Quality Inspector', status: 'locked' },
-        { key: 'packaging', title: 'Packaging Lead', status: 'locked' },
-        { key: 'monitor', title: 'Machine Monitor', status: 'active' }
-      ];
-
-      const fallbackQmsRoles = [
-        { key: 'qms_monitor', title: 'QMS Triage Monitor', status: 'active' },
-        { key: 'sme', title: 'Subject Matter Expert', status: 'locked' },
-        { key: 'investigation_officer', title: 'Investigation Officer', status: 'locked' },
-        { key: 'capa_coordinator', title: 'CAPA Coordinator', status: 'locked' },
-        { key: 'qa_reviewer', title: 'QA Release Manager', status: 'locked' }
-      ];
-
-      set({
-        batchState: fallbackState,
-        batchRoles: fallbackBatchRoles,
-        qmsBatchRoles: fallbackQmsRoles,
-        loading: false,
-        error: null
-      });
-    }
+    get().refreshBatchRoles();
+    get().refreshQmsRoles();
   },
 
-
-  // =====================================================
-  // START / COMPLETE STAGE
-  // =====================================================
-
   startStage: async (stageId) => {
-    const batchId = get().batchState?.batch.id;
-    if (!batchId) return;
+    const state = get().batchState;
+    if (!state) return;
 
-    try {
-      const state = await api.startStage(batchId, stageId);
-      set({ batchState: state });
-    } catch (err) {
-      set({ error: err.message });
-    }
+    const updatedStages = state.stages.map((s) => {
+      if (s.id === stageId && s.status === 'pending') {
+        return { ...s, status: 'active', started_at: new Date().toISOString() };
+      }
+      return s;
+    });
+
+    set({
+      batchState: {
+        ...state,
+        stages: updatedStages,
+        machine: { status: 'running' }
+      }
+    });
+
+    get().refreshBatchRoles();
+    get().refreshRoleDetail();
   },
 
   completeStage: async (stageId) => {
-    const batchId = get().batchState?.batch.id;
-    if (!batchId) return;
+    const state = get().batchState;
+    if (!state) return;
 
-    try {
-      const state = await api.completeStage(batchId, stageId);
-      set({ batchState: state });
-    } catch (err) {
-      set({ error: err.message });
-    }
+    const activeStage = state.stages.find((s) => s.id === stageId);
+    if (!activeStage) return;
+
+    const updatedStages = state.stages.map((s) => {
+      if (s.id === stageId) {
+        return { ...s, status: 'completed', completed_at: new Date().toISOString() };
+      }
+      // Unlock next stage automatically
+      if (s.stage_order === activeStage.stage_order + 1) {
+        return { ...s, status: 'active', started_at: new Date().toISOString() };
+      }
+      return s;
+    });
+
+    const nextOrder = activeStage.stage_order + 1;
+
+    set({
+      batchState: {
+        ...state,
+        batch: { ...state.batch, current_stage_order: nextOrder },
+        stages: updatedStages,
+        machine: { status: 'stopped' }
+      }
+    });
+
+    get().refreshBatchRoles();
+    get().refreshRoleDetail();
   },
 
-
   // =====================================================
-  // DAY 2 — VM OPERATOR ACTION
+  // VM OPERATOR ACTIONS
   // =====================================================
-
   operatorAction: async (batchId, eventId, action, detail = '') => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/batches/${batchId}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId, action, detail }),
-      });
+    const state = get().batchState;
+    if (!state) return;
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Operator action failed');
+    let score = 0;
+    let passed = 0;
+    if (['pause', 'stop', 'report'].includes(action)) {
+      score = 10;
+      passed = 1;
+    }
+
+    const updatedEvents = state.events.map((evt) => {
+      if (evt.id === eventId) {
+        return { ...evt, acknowledged: 1 };
       }
+      return evt;
+    });
 
-      const state = await response.json();
-      set({ batchState: state });
+    const updatedStepScores = [...state.stepScores];
+    const scoreIdx = updatedStepScores.findIndex((s) => s.field === 'alarmResponse');
+    const checkpointDesc = 'Halt machine (Pause/Stop) or Report to QMS during critical alarm.';
+    
+    if (scoreIdx > -1) {
+      updatedStepScores[scoreIdx] = {
+        ...updatedStepScores[scoreIdx],
+        actual: action,
+        passed,
+        marks_awarded: score
+      };
+    } else {
+      updatedStepScores.push({
+        batch_id: batchId,
+        stage: 'Milling',
+        field: 'alarmResponse',
+        expected: checkpointDesc,
+        actual: action,
+        passed,
+        marks_awarded: score,
+        marks_max: 10
+      });
+    }
 
-      if (['acknowledge', 'pause', 'stop', 'report'].includes(action)) {
-        set({ alarmActive: false });
-        if (get().activeEvent) {
-          set({ activeEvent: { ...get().activeEvent, acknowledged: 1 } });
+    set({
+      batchState: {
+        ...state,
+        events: updatedEvents,
+        stepScores: updatedStepScores,
+        machine: { status: action === 'pause' ? 'paused' : action === 'stop' ? 'stopped' : 'running' }
+      },
+      alarmActive: false,
+      activeEvent: get().activeEvent ? { ...get().activeEvent, acknowledged: 1 } : null
+    });
+
+    get().refreshRoleDetail();
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
+  },
+
+  submitRoleStep: async (stepKey, value) => {
+    const state = get().batchState;
+    const roleKey = get().selectedRoleKey;
+    if (!state || !roleKey) return null;
+
+    const role = ROLES.find((r) => r.key === roleKey);
+    const stage = state.stages.find((s) => s.stage_order === role.order);
+    if (!stage || stage.status === 'completed') return null;
+
+    const stepIndex = role.steps.findIndex((s) => s.key === stepKey);
+    const step = role.steps[stepIndex];
+    
+    let opData = {};
+    try { opData = JSON.parse(stage.operation_data || '{}'); } catch { opData = {}; }
+
+    // Map input values
+    const dataKey = step.field || step.key;
+    if (step.type === 'totals') {
+      opData[step.key] = value;
+    } else if (step.type === 'checklist') {
+      opData[step.key] = value;
+    } else {
+      opData[dataKey] = value;
+    }
+
+    // Precondition / Validation
+    const config = state.simulationConfig;
+    let passed = 0;
+    let marksAwarded = 0;
+    
+    if (config.evaluationRubric && config.evaluationRubric.vmCheckpoints) {
+      const checkpoint = config.evaluationRubric.vmCheckpoints.find(
+        (cp) => cp.stage === role.stageName && cp.field === dataKey
+      );
+      if (checkpoint) {
+        let evalVal = value;
+        if (typeof value === 'string' && !isNaN(value) && value.trim() !== '') {
+          evalVal = Number(value);
+        }
+        
+        const pass = new Function('value', 'return ' + checkpoint.precondition)(evalVal);
+        if (pass) {
+          passed = 1;
+          marksAwarded = checkpoint.marks;
+        } else {
+          if (['set', 'select'].includes(step.type)) {
+            throw new Error(`Recipe Validation Error: "${value}" does not match target. ${checkpoint.expectedBehavior}`);
+          }
+        }
+
+        const updatedScores = state.stepScores.filter(s => !(s.stage === role.stageName && s.field === dataKey));
+        updatedScores.push({
+          batch_id: state.batch.id,
+          stage: role.stageName,
+          field: dataKey,
+          expected: checkpoint.expectedBehavior || String(checkpoint.precondition),
+          actual: String(value),
+          passed,
+          marks_awarded: marksAwarded,
+          marks_max: checkpoint.marks
+        });
+        state.stepScores = updatedScores;
+      }
+    }
+
+    // Defect Triggers
+    let triggeredEvent = null;
+    let newAlarmActive = false;
+    
+    if (step.type === 'start') {
+      state.machine.status = 'running';
+      if (config.defect && config.defect.triggerStage === role.stageName) {
+        triggeredEvent = {
+          id: Date.now(),
+          batch_id: state.batch.id,
+          stage_name: role.stageName,
+          type: 'alarm',
+          parameter: config.defect.parameter,
+          expected: config.defect.normal,
+          actual: config.defect.drift,
+          message: config.defect.message,
+          acknowledged: 0,
+          created_at: new Date().toISOString()
+        };
+        state.events = [triggeredEvent, ...state.events];
+        newAlarmActive = true;
+        get().playAlarmSound();
+      }
+    }
+
+    // Limit check for IPC confirmations
+    if (step.type === 'confirm' && step.compareTo) {
+      const target = Number(opData[step.compareTo] ?? step.target);
+      const actual = Number(value);
+      if (Number.isFinite(target) && Number.isFinite(actual) && target !== 0) {
+        const pctOff = (Math.abs(actual - target) / target) * 100;
+        if (pctOff > (step.tolerancePct ?? 5)) {
+          triggeredEvent = {
+            id: Date.now(),
+            batch_id: state.batch.id,
+            stage_name: role.stageName,
+            type: 'alarm',
+            parameter: step.field,
+            expected: target,
+            actual: actual,
+            message: `${role.title}: ${step.label} outside tolerance — target ${target}${step.unit || ''}, actual ${actual}${step.unit || ''} (±${step.tolerancePct ?? 5}% limit).`,
+            acknowledged: 0,
+            created_at: new Date().toISOString()
+          };
+          state.events = [triggeredEvent, ...state.events];
+          newAlarmActive = true;
+          get().playAlarmSound();
         }
       }
-
-      // Automatically sync active operator panel workspace state
-      const roleKey = get().selectedRoleKey;
-      if (roleKey && roleKey !== 'monitor') {
-        const roleDetail = await api.fetchRoleDetail(batchId, roleKey);
-        set({ roleDetail });
-      }
-    } catch (err) {
-      set({ error: err.message });
     }
-  },
 
-
-  // =====================================================
-  // DAY 2 — QMS IMPACT ASSESSMENT
-  // =====================================================
-
-  submitImpactAssessment: async (eventId, batchId, severity, productImpact, significant, notes) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/deviations/impact-assessment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId, batchId, severity, productImpact, significant, notes }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Impact assessment failed');
+    // Step type checks (completes stage, check flags)
+    if (step.type === 'complete') {
+      const unresolvedAlarm = state.events.find(e => e.stage_name === role.stageName && e.acknowledged === 0);
+      if (unresolvedAlarm) {
+        throw new Error('An unacknowledged alarm is open for this stage. Acknowledge/respond to it before completing.');
       }
-
-      const deviation = await response.json();
-      set({ deviation });
-      await get().refreshQmsRoleDetail();
-      return deviation;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
-  },
-
-
-  // =====================================================
-  // DAY 2 — QMS INVESTIGATION
-  // =====================================================
-
-  submitInvestigation: async (deviationId, batchId, fields) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/deviations/investigation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviationId, batchId, ...fields }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Investigation submission failed');
+      const activeDeviation = get().deviation;
+      if (activeDeviation && activeDeviation.significant === 1 && activeDeviation.status !== 'closed' && activeEvent?.stage_name === role.stageName) {
+        throw new Error('This stage is locked on Quality Hold. QMS must complete the investigation, verify CAPA, and release the batch before you can transfer material.');
       }
-
-      const result = await response.json(); // { deviation, batch }
-      set({
-        investigation: result,
-        deviation: result.deviation,
-      });
-      await get().refreshQmsRoleDetail();
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
     }
-  },
 
-
-  // =====================================================
-  // DAY 2 — CAPA CREATION
-  // =====================================================
-
-  createCAPA: async (deviationId, batchId, correctiveAction, preventiveAction, actionItems = []) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/capas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviationId, batchId, correctiveAction, preventiveAction, actionItems }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'CAPA creation failed');
+    // Save local stage progress
+    const updatedStages = state.stages.map((s) => {
+      if (s.id === stage.id) {
+        const isComplete = step.type === 'complete';
+        return {
+          ...s,
+          current_step: isComplete ? stepIndex + 1 : stepIndex + 1,
+          status: isComplete ? 'completed' : 'active',
+          completed_at: isComplete ? new Date().toISOString() : null,
+          operation_data: JSON.stringify(opData)
+        };
       }
-
-      const capa = await response.json();
-      set({ capa, capaFix: null, verification: null });
-      await get().refreshQmsRoleDetail();
-      return capa;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
-  },
-
-
-  // =====================================================
-  // VM CAPA FIX
-  // =====================================================
-
-  submitCapaFix: async (capaId, batchId, parameter, beforeValue, afterValue) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/capas/${capaId}/fix`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId, parameter, beforeValue, afterValue }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'CAPA fix submission failed');
+      // Unlock next stage on completion
+      if (step.type === 'complete' && s.stage_order === role.order + 1) {
+        return { ...s, status: 'active', started_at: new Date().toISOString() };
       }
+      return s;
+    });
 
-      const capa = await response.json();
-      set({
-        capa,
-        capaFix: { parameter, beforeValue, afterValue },
-        verification: null,
-      });
-      await get().refreshQmsRoleDetail();
-      return capa;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
+    const updatedBatch = {
+      ...state.batch,
+      current_stage_order: step.type === 'complete' ? role.order + 1 : state.batch.current_stage_order
+    };
+
+    const nextState = {
+      ...state,
+      batch: updatedBatch,
+      stages: updatedStages,
+      machine: { status: step.type === 'complete' ? 'stopped' : state.machine.status }
+    };
+
+    set({
+      batchState: nextState,
+      activeEvent: triggeredEvent || get().activeEvent,
+      alarmActive: newAlarmActive || get().alarmActive
+    });
+
+    get().refreshBatchRoles();
+    get().refreshQmsRoles();
+    get().refreshRoleDetail();
+    
+    return {
+      detail: get().roleDetail,
+      eventId: triggeredEvent ? triggeredEvent.id : null,
+      flagged: newAlarmActive
+    };
   },
 
-
   // =====================================================
-  // QMS CAPA VERIFICATION
+  // VM ROLE SELECTION & COMPLETED LOGS
   // =====================================================
-
-  verifyCapa: async (capaId, batchId, parameter, expected, beforeValue, afterValue, tolerance) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/capas/${capaId}/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId, parameter, expected, beforeValue, afterValue, tolerance }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'CAPA verification failed');
-      }
-
-      const verification = await response.json(); // { passed, expected, afterValue, tolerance }
-
-      set((state) => ({
-        verification,
-        capa: state.capa
-          ? { ...state.capa, status: verification.passed ? 'verified' : 'failed' }
-          : state.capa,
-      }));
-
-      await get().refreshQmsRoleDetail();
-
-      return verification;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
-  },
-
-
-  // =====================================================
-  // BATCH RELEASE
-  // =====================================================
-
-  releaseBatch: async (batchId, capaId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/batches/${batchId}/release`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ capaId }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Batch release failed');
-      }
-
-      const batch = await response.json();
-
-      // Cycle complete — clear the event/QMS workflow so both panels return
-      // to a clean state and the VM can continue the remaining stages.
-      set({
-        activeEvent: null,
-        alarmActive: false,
-        deviation: null,
-        investigation: null,
-        capa: null,
-        capaFix: null,
-        verification: null,
-      });
-
-      return batch;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
-  },
-
-
-  // =====================================================
-  // PANEL SWITCHING
-  // =====================================================
-
-  setActivePanel: (panel) => {
-    set({ activePanel: panel });
-  },
-
-
-  // =====================================================
-  // VM ROLE PANELS — open/close a role's dedicated panel
-  // =====================================================
-
-  // Opens role's dedicated panel INSIDE the VM panel (does not touch
-  // activePanel — this is a sub-view of the VM panel, never a
-  // separate top-level panel).
   openRole: async (roleKey) => {
-    set({ selectedRoleKey: roleKey, roleDetail: null, monitorData: null, roleDetailLoading: true, error: null });
-
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) {
-      set({ roleDetailLoading: false });
-      return;
-    }
-
-    try {
-      if (roleKey === 'monitor') {
-        const monitorData = await api.fetchMonitorOverview(batchId);
-        set({ monitorData, roleDetailLoading: false });
-      } else {
-        const detail = await api.fetchRoleDetail(batchId, roleKey);
-        set({ roleDetail: detail, roleDetailLoading: false });
-      }
-    } catch (err) {
-      set({ error: err.message, roleDetailLoading: false });
-    }
+    set({ selectedRoleKey: roleKey, roleDetailLoading: true, error: null });
+    get().refreshRoleDetail();
   },
 
-  // Back to the 10-role selection grid.
   closeRole: () => {
     set({ selectedRoleKey: null, roleDetail: null, monitorData: null });
   },
 
-  // Operator submits one technical step of the open role's workflow.
-  submitRoleStep: async (stepKey, value) => {
-    const batchId = get().batchState?.batch?.id;
+  refreshRoleDetail: () => {
+    const state = get().batchState;
     const roleKey = get().selectedRoleKey;
-    if (!batchId || !roleKey) return null;
+    if (!state || !roleKey) return;
 
-    try {
-      const result = await api.submitRoleStep(batchId, roleKey, stepKey, value);
-      set({ roleDetail: result.detail });
-
-      const batchRoles = await api.fetchBatchRoles(batchId);
-      set({ batchRoles });
-
-      if (result.eventId && result.detail?.activeEvent) {
-        set({ activeEvent: result.detail.activeEvent, alarmActive: true });
-      }
-
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
-  },
-
-  refreshBatchRoles: async () => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const batchRoles = await api.fetchBatchRoles(batchId);
-      set({ batchRoles });
-    } catch (err) {
-      set({ error: err.message });
-    }
-  },
-
-
-  // =====================================================
-  // VM ROLE 10 — Machine Monitor / Support
-  // =====================================================
-
-  refreshMonitor: async () => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const monitorData = await api.fetchMonitorOverview(batchId);
-      set({ monitorData });
-    } catch (err) {
-      set({ error: err.message });
-    }
-  },
-
-  addMonitorNote: async (eventId, note, type = 'support') => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const monitorData = await api.postMonitorNote(batchId, eventId, note, type);
-      set({ monitorData });
-      return monitorData;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
-  },
-
-
-  // =====================================================
-  // QMS ROLE PANELS — open/close a role's dedicated panel
-  // =====================================================
-
-  // Opens a QMS role's dedicated panel INSIDE the QMS panel — mirrors
-  // openRole() for VM. Never touches activePanel: this is always a
-  // sub-view of the QMS panel, never a separate top-level panel.
-  openQmsRole: async (roleKey) => {
-    set({ selectedQmsRoleKey: roleKey, qmsRoleDetail: null, qmsRoleDetailLoading: true, error: null });
-
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) {
-      set({ qmsRoleDetailLoading: false });
+    if (roleKey === 'monitor') {
+      const stageRoles = state.stages.map((stage) => {
+        const r = ROLES.find((rl) => rl.stageName === stage.name);
+        return {
+          stageId: stage.id,
+          roleKey: r ? r.key : null,
+          roleTitle: r ? r.title : stage.name,
+          stageName: stage.name,
+          status: stage.status,
+          currentStep: stage.current_step,
+          totalSteps: r ? r.steps.length : null,
+        };
+      });
+      set({
+        monitorData: { stageRoles, events: state.events, notes: state.events.filter(e => e.message) },
+        roleDetailLoading: false
+      });
       return;
     }
 
-    try {
-      const detail = await api.fetchQmsRoleDetail(batchId, roleKey);
-      set({ qmsRoleDetail: detail, qmsRoleDetailLoading: false });
-    } catch (err) {
-      set({ error: err.message, qmsRoleDetailLoading: false });
-    }
+    const role = ROLES.find((r) => r.key === roleKey);
+    const stage = state.stages.find((s) => s.stage_order === role.order);
+    const stepLog = state.events.filter((e) => e.stage_name === role.stageName);
+
+    set({
+      roleDetail: {
+        role,
+        stage,
+        operationData: JSON.parse(stage.operation_data || '{}'),
+        stepLog,
+        locked: role.order > state.batch.current_stage_order && stage.status !== 'completed',
+        activeEvent: get().activeEvent && get().activeEvent.stage_name === role.stageName ? get().activeEvent : null,
+        batch: state.batch,
+      },
+      roleDetailLoading: false
+    });
   },
 
-  // Back to the 5-role selection grid.
+  // =====================================================
+  // QMS WORKFLOW ACTIONS (MONITOR, SME, IO, CAPA, QA)
+  // =====================================================
+  openQmsRole: async (roleKey) => {
+    set({ selectedQmsRoleKey: roleKey, qmsRoleDetailLoading: true, error: null });
+    get().refreshQmsRoleDetail();
+  },
+
   closeQmsRole: () => {
     set({ selectedQmsRoleKey: null, qmsRoleDetail: null });
   },
 
-  refreshQmsRoles: async () => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const qmsBatchRoles = await api.fetchQmsRoles(batchId);
-      set({ qmsBatchRoles });
-    } catch (err) {
-      set({ error: err.message });
-    }
-  },
-
-  refreshQmsRoleDetail: async () => {
-    const batchId = get().batchState?.batch?.id;
+  refreshQmsRoleDetail: () => {
+    const state = get().batchState;
     const roleKey = get().selectedQmsRoleKey;
-    if (!batchId || !roleKey) return;
-    try {
-      const qmsRoleDetail = await api.fetchQmsRoleDetail(batchId, roleKey);
-      set({ qmsRoleDetail });
-    } catch (err) {
-      set({ error: err.message });
-    }
+    if (!state || !roleKey) return;
+
+    const def = QMS_ROLES.find((r) => r.key === roleKey);
+    const activeEvent = get().activeEvent;
+    const deviation = get().deviation;
+    const capa = get().capa;
+
+    const rolesList = get().qmsBatchRoles;
+    const roleStatus = rolesList.find((r) => r.key === roleKey);
+
+    set({
+      qmsRoleDetail: {
+        role: def,
+        status: roleStatus?.status || 'locked',
+        note: roleStatus?.note || '',
+        batch: state.batch,
+        activeEvent,
+        deviation,
+        capa,
+        qaReview: state.qaReviews ? state.qaReviews[0] : null,
+        monitorOverview: roleKey === 'qms_monitor' ? { activeAlarms: activeEvent ? [activeEvent] : [] } : null,
+      },
+      qmsRoleDetailLoading: false
+    });
   },
-
-
-  // =====================================================
-  // QMS ROLE 11 — QMS Monitor: triage + assign
-  // =====================================================
 
   qmsMonitorReview: async (eventId, note) => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const result = await api.qmsMonitorReview(batchId, eventId, note);
-      set({ qmsBatchRoles: result.qmsRoles });
-      await get().refreshQmsRoleDetail();
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
+    const activeEvent = get().activeEvent;
+    if (activeEvent) {
+      set({
+        activeEvent: { ...activeEvent, reviewed_by_monitor: 1 }
+      });
     }
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
   },
 
+  submitImpactAssessment: async (eventId, batchId, severity, productImpact, significant, notes) => {
+    const deviation = {
+      id: Date.now(),
+      event_id: eventId,
+      severity,
+      product_impact: productImpact,
+      significant: significant ? 1 : 0,
+      status: 'open'
+    };
 
-  // =====================================================
-  // QMS ROLE 14 — CAPA Coordinator: track / evidence / send
-  // =====================================================
+    set({ deviation });
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
+    return deviation;
+  },
+
+  submitInvestigation: async (deviationId, batchId, fields) => {
+    const deviation = get().deviation;
+    const updatedDeviation = {
+      ...deviation,
+      root_cause: fields.rootCause,
+      evidence: fields.evidence,
+      proposed_corrective: fields.proposedCorrective,
+      proposed_preventive: fields.proposedPreventive,
+      description: fields.whatHappened,
+      possible_causes: fields.possibleCauses,
+      immediate_action: fields.immediateAction
+    };
+
+    const state = get().batchState;
+    set({
+      deviation: updatedDeviation,
+      batchState: {
+        ...state,
+        batch: { ...state.batch, status: 'on_hold' }
+      }
+    });
+
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
+
+    return {
+      deviation: updatedDeviation,
+      batch: get().batchState.batch
+    };
+  },
+
+  createCAPA: async (deviationId, batchId, correctiveAction, preventiveAction, actionItems = []) => {
+    const items = (actionItems || []).map(text => ({ text, done: false }));
+    const capa = {
+      id: Date.now(),
+      deviation_id: deviationId,
+      corrective_action: correctiveAction,
+      preventive_action: preventiveAction,
+      actionItems: items,
+      status: 'open'
+    };
+
+    set({ capa });
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
+    return capa;
+  },
 
   capaToggleAction: async (capaId, itemIndex) => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const capa = await api.capaToggleAction(capaId, batchId, itemIndex);
-      set({ capa });
-      await get().refreshQmsRoleDetail();
-      return capa;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
+    const capa = get().capa;
+    const updatedItems = capa.actionItems.map((item, idx) => {
+      if (idx === itemIndex) {
+        return { ...item, done: !item.done };
+      }
+      return item;
+    });
+
+    set({
+      capa: { ...capa, actionItems: updatedItems }
+    });
+    get().refreshQmsRoleDetail();
   },
 
   capaAddEvidence: async (capaId, evidence) => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const capa = await api.capaAddEvidence(capaId, batchId, evidence);
-      set({ capa });
-      await get().refreshQmsRoleDetail();
-      return capa;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
+    const capa = get().capa;
+    set({
+      capa: { ...capa, evidence }
+    });
+    get().refreshQmsRoleDetail();
   },
 
   capaSendForReview: async (capaId) => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const capa = await api.capaSendForReview(capaId, batchId);
-      set({ capa });
-      await get().refreshQmsRoleDetail();
-      await get().refreshQmsRoles();
-      return capa;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
+    const capa = get().capa;
+    set({
+      capa: { ...capa, sent_for_review: 1 }
+    });
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
   },
 
+  submitCapaFix: async (capaId, batchId, parameter, beforeValue, afterValue) => {
+    const capa = get().capa;
+    set({
+      capa: { ...capa, fix_parameter: parameter, fix_before: beforeValue, fix_after: afterValue },
+      capaFix: { parameter, beforeValue, afterValue }
+    });
+    get().refreshQmsRoleDetail();
+  },
 
-  // =====================================================
-  // QMS ROLE 15 — QA Reviewer: approve / return
-  // =====================================================
+  verifyCapa: async (capaId, batchId, parameter, expected, beforeValue, afterValue, tolerance) => {
+    const diff = Math.abs(afterValue - expected);
+    const passed = diff <= (tolerance || 0.1);
+
+    const verification = {
+      passed,
+      expected,
+      before_value: beforeValue,
+      after_value: afterValue,
+      tolerance
+    };
+
+    const capa = get().capa;
+    const updatedCapa = {
+      ...capa,
+      status: passed ? 'verified' : 'failed'
+    };
+
+    set({
+      verification,
+      capa: updatedCapa
+    });
+
+    get().refreshQmsRoles();
+    get().refreshQmsRoleDetail();
+    return verification;
+  },
 
   submitQaReview: async (capaId, decision, comments) => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return;
-    try {
-      const result = await api.submitQaReview(batchId, capaId, decision, comments);
-      set({ qmsBatchRoles: result.qmsRoles });
+    const state = get().batchState;
+    const qaReview = {
+      id: Date.now(),
+      batch_id: state.batch.id,
+      capa_id: capaId,
+      decision,
+      comments
+    };
 
-      if (decision === 'approved') {
-        // Full cycle complete — clear the alarm/QMS workflow like
-        // releaseBatch() does, and return both role panels to their grids.
-        set({
-          activeEvent: null,
-          alarmActive: false,
-          deviation: null,
-          investigation: null,
-          capa: null,
-          capaFix: null,
-          verification: null,
-          selectedQmsRoleKey: null,
-          qmsRoleDetail: null,
-        });
-      } else {
-        set({ capa: result.capa });
-        await get().refreshQmsRoleDetail();
-      }
+    const updatedState = {
+      ...state,
+      qaReviews: [qaReview]
+    };
 
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
+    if (decision === 'approved') {
+      set({
+        batchState: {
+          ...updatedState,
+          batch: { ...state.batch, status: 'released' }
+        },
+        activeEvent: null,
+        alarmActive: false,
+        deviation: null,
+        investigation: null,
+        capa: null,
+        capaFix: null,
+        verification: null,
+        selectedQmsRoleKey: null,
+        qmsRoleDetail: null,
+      });
+    } else {
+      const capa = get().capa;
+      set({
+        batchState: updatedState,
+        capa: { ...capa, status: 'failed' }
+      });
+      get().refreshQmsRoleDetail();
     }
+
+    get().refreshQmsRoles();
+    return {
+      qmsRoles: get().qmsBatchRoles,
+      capa: get().capa
+    };
   },
 
   // =====================================================
-  // DEMO SKIP ACTIONS
+  // AUTO-RUNS & DEMO UTILITIES
   // =====================================================
   skipVmRole: async (roleKey) => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return null;
-    try {
-      const result = await api.skipVmRole(batchId, roleKey);
-      set({ roleDetail: result.detail });
-      const batchRoles = await api.fetchBatchRoles(batchId);
-      set({ batchRoles });
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
+    const state = get().batchState;
+    if (!state) return null;
+
+    const role = ROLES.find((r) => r.key === roleKey);
+    const stage = state.stages.find((s) => s.stage_order === role.order);
+    if (!stage || stage.status === 'completed') return null;
+
+    let opData = {};
+    try { opData = JSON.parse(stage.operation_data || '{}'); } catch { opData = {}; }
+
+    // Hydrate targets into stage data
+    role.steps.forEach((step) => {
+      const targetVal = step.target || (step.options ? step.options[0].value : null);
+      if (step.field) {
+        opData[step.field] = targetVal;
+      } else if (step.key) {
+        opData[step.key] = targetVal;
+      }
+    });
+
+    const config = state.simulationConfig;
+    const updatedScores = [...state.stepScores];
+
+    if (config.evaluationRubric && config.evaluationRubric.vmCheckpoints) {
+      config.evaluationRubric.vmCheckpoints.forEach((checkpoint) => {
+        if (checkpoint.stage === role.stageName) {
+          const checkExists = updatedScores.find(s => s.stage === role.stageName && s.field === checkpoint.field);
+          if (!checkExists) {
+            updatedScores.push({
+              batch_id: state.batch.id,
+              stage: role.stageName,
+              field: checkpoint.field,
+              expected: checkpoint.expectedBehavior || String(checkpoint.precondition),
+              actual: String(checkpoint.field === 'actualQty' ? 10.0 : checkpoint.field === 'actualWeight' ? 500.0 : 'validated'),
+              passed: 1,
+              marks_awarded: checkpoint.marks,
+              marks_max: checkpoint.marks
+            });
+          }
+        }
+      });
     }
+
+    const updatedStages = state.stages.map((s) => {
+      if (s.id === stage.id) {
+        return {
+          ...s,
+          current_step: role.steps.length,
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          operation_data: JSON.stringify(opData)
+        };
+      }
+      // Auto unlock next stage
+      if (s.stage_order === role.order + 1) {
+        return { ...s, status: 'active', started_at: new Date().toISOString() };
+      }
+      return s;
+    });
+
+    const nextState = {
+      ...state,
+      batch: { ...state.batch, current_stage_order: role.order + 1 },
+      stages: updatedStages,
+      stepScores: updatedScores,
+      machine: { status: 'stopped' }
+    };
+
+    set({ batchState: nextState });
+
+    get().refreshBatchRoles();
+    get().refreshRoleDetail();
+
+    return {
+      detail: get().roleDetail,
+      eventId: null,
+      flagged: false
+    };
   },
 
   skipQmsAll: async () => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return null;
-    try {
-      const result = await api.skipQmsAll(batchId);
-      set({
-        activeEvent: null,
-        alarmActive: false,
-        deviation: null,
-        investigation: null,
-        capa: null,
-        capaFix: null,
-        verification: null,
-        selectedQmsRoleKey: null,
-        qmsRoleDetail: null,
-        qmsBatchRoles: result.qmsRoles,
-      });
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
-    }
+    const state = get().batchState;
+    if (!state) return null;
+
+    const event = get().activeEvent;
+    if (!event) return null;
+
+    // Simulate perfect QMS sequence
+    const updatedQmsScores = { ...get().qmsScores };
+    updatedQmsScores[event.id] = { selectedOptionValue: 'A', score: 10, maxScore: 10 };
+    updatedQmsScores['investigation_' + event.id] = { selectedOptionValue: 'A', score: 10, maxScore: 10 };
+
+    set({
+      qmsScores: updatedQmsScores,
+      activeEvent: null,
+      alarmActive: false,
+      deviation: null,
+      investigation: null,
+      capa: null,
+      capaFix: null,
+      verification: null,
+      selectedQmsRoleKey: null,
+      qmsRoleDetail: null,
+      batchState: {
+        ...state,
+        batch: { ...state.batch, status: 'released' }
+      }
+    });
+
+    get().refreshQmsRoles();
+    return {
+      qmsRoles: get().qmsBatchRoles
+    };
   },
 
   skipAll: async () => {
-    const batchId = get().batchState?.batch?.id;
-    if (!batchId) return null;
-    try {
-      const result = await api.skipAll(batchId);
-      
-      // Auto-record quiz scores for any alarm event in the skipped simulation
-      const events = result.fullState?.events || [];
-      const updatedQmsScores = { ...get().qmsScores };
-      events.forEach(evt => {
-        if (evt.type === 'alarm') {
-          updatedQmsScores[evt.id] = { selectedOptionValue: 'A', score: 10, maxScore: 10 };
-          updatedQmsScores['investigation_' + evt.id] = { selectedOptionValue: 'A', score: 10, maxScore: 10 };
+    const state = get().batchState;
+    if (!state) return null;
+
+    // Skip every VM stage
+    for (const r of ROLES) {
+      if (r.key !== 'monitor') {
+        const stage = state.stages.find(s => s.stage_order === r.order);
+        if (stage && stage.status !== 'completed') {
+          await get().skipVmRole(r.key);
         }
-      });
-
-      set({
-        activeEvent: null,
-        alarmActive: false,
-        deviation: null,
-        investigation: null,
-        capa: null,
-        capaFix: null,
-        verification: null,
-        selectedRoleKey: null,
-        roleDetail: null,
-        selectedQmsRoleKey: null,
-        qmsRoleDetail: null,
-        batchState: result.fullState,
-        qmsScores: updatedQmsScores,
-      });
-
-      // Refetch the roles states to ensure UI is in sync
-      const [batchRoles, qmsBatchRoles] = await Promise.all([
-        api.fetchBatchRoles(batchId),
-        api.fetchQmsRoles(batchId),
-      ]);
-      set({ batchRoles, qmsBatchRoles });
-
-      return result;
-    } catch (err) {
-      set({ error: err.message });
-      throw err;
+      }
     }
-  },
 
+    // Re-triage and release batch
+    set((stateStore) => ({
+      batchState: {
+        ...stateStore.batchState,
+        batch: { ...stateStore.batchState.batch, status: 'released' }
+      },
+      activeEvent: null,
+      alarmActive: false,
+      deviation: null,
+      investigation: null,
+      capa: null,
+      capaFix: null,
+      verification: null,
+      selectedRoleKey: null,
+      roleDetail: null,
+      selectedQmsRoleKey: null,
+      qmsRoleDetail: null,
+    }));
+
+    get().refreshBatchRoles();
+    get().refreshQmsRoles();
+
+    return {
+      fullState: get().batchState
+    };
+  },
 }));

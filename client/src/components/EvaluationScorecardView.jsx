@@ -4,26 +4,9 @@ import { useSimStore } from '../store';
 
 export default function EvaluationScorecardView() {
   const { batchState, qmsScores } = useSimStore();
-  const [vmScores, setVmScores] = useState([]);
-  const [loadingScores, setLoadingScores] = useState(true);
   const [activeTab, setActiveTab] = useState('vm');
-
-  useEffect(() => {
-    if (!batchState?.batch?.id) return;
-    setLoadingScores(true);
-    const host = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-    fetch(`${host}/api/batches/${batchState.batch.id}/scores`)
-      .then((res) => res.json())
-      .then((data) => {
-        setVmScores(data);
-        setLoadingScores(false);
-      })
-      .catch((err) => {
-        console.error('Error fetching scores:', err);
-        setLoadingScores(false);
-      });
-  }, [batchState?.batch?.id]);
-
+  const vmScores = batchState?.stepScores || [];
+  const loadingScores = false;
   // Aggregate VM Operator Checkpoints
   const vmTotalScore = vmScores.reduce((acc, curr) => acc + curr.marks_awarded, 0);
   const vmTotalMax = vmScores.reduce((acc, curr) => acc + curr.marks_max, 0);

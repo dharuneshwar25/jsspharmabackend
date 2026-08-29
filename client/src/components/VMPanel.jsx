@@ -268,27 +268,9 @@ export default function VMPanel() {
 }
 
 function SimulationCompletionCard({ batchState, qmsScores }) {
-  const [vmScores, setVmScores] = useState([]);
-  const [loading, setLoading] = useState(true);
-
+  const vmScores = batchState?.stepScores || [];
+  const loading = false;
   const batch = batchState?.batch;
-
-  useEffect(() => {
-    if (!batch?.id) return;
-    setLoading(true);
-    const host = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-    fetch(`${host}/api/batches/${batch.id}/scores`)
-      .then((res) => res.json())
-      .then((data) => {
-        setVmScores(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Error fetching completion scores:', err);
-        setLoading(false);
-      });
-  }, [batch?.id]);
-
   // Aggregate VM Operator Checkpoints
   const vmTotalScore = vmScores.reduce((acc, curr) => acc + curr.marks_awarded, 0);
   const vmTotalMax = vmScores.reduce((acc, curr) => acc + curr.marks_max, 0);
