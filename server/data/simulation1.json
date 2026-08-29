@@ -1,0 +1,193 @@
+{
+  "id": "paracetamol-500",
+  "name": "Paracetamol 500mg — Batch PCT-500-001",
+  "description": "Standard tablet manufacturing run. One scripted parameter drift during Milling.",
+  "stages": [
+    { "order": 1, "name": "Dispensing", "durationMs": 4000, "params": [{ "key": "materialWeighed", "label": "Material Weighed", "unit": "kg", "normal": 120 }] },
+    { "order": 2, "name": "Milling", "durationMs": 6000, "params": [{ "key": "temperature", "label": "Mill Temperature", "unit": "°C", "normal": 25 }] },
+    { "order": 3, "name": "Granulation", "durationMs": 5000, "params": [{ "key": "moisture", "label": "Granule Moisture", "unit": "%", "normal": 4.2 }] },
+    { "order": 4, "name": "Drying", "durationMs": 5000, "params": [{ "key": "outletTemp", "label": "Outlet Air Temp", "unit": "°C", "normal": 55 }] },
+    { "order": 5, "name": "Blending", "durationMs": 4000, "params": [{ "key": "blendTime", "label": "Blend Time", "unit": "min", "normal": 10 }] },
+    { "order": 6, "name": "Compression", "durationMs": 5000, "params": [{ "key": "tabletWeight", "label": "Tablet Weight", "unit": "mg", "normal": 650 }] },
+    { "order": 7, "name": "Coating", "durationMs": 5000, "params": [{ "key": "sprayRate", "label": "Spray Rate", "unit": "g/min", "normal": 45 }] },
+    { "order": 8, "name": "Inspection", "durationMs": 3000, "params": [{ "key": "defectRate", "label": "Visual Defect Rate", "unit": "%", "normal": 0.5 }] },
+    { "order": 9, "name": "Packaging", "durationMs": 3000, "params": [{ "key": "unitsPacked", "label": "Units Packed", "unit": "units", "normal": 10000 }] }
+  ],
+  "materials": [
+    { "key": "api", "label": "Paracetamol API", "available": 50, "unit": "kg" },
+    { "key": "binder", "label": "Binder (PVP)", "available": 12, "unit": "kg" },
+    { "key": "excipient", "label": "Microcrystalline Cellulose", "available": 60, "unit": "kg" }
+  ],
+  "defect": {
+    "triggerStage": "Milling",
+    "parameter": "temperature",
+    "normal": 25,
+    "drift": 32,
+    "unit": "°C",
+    "message": "Mill temperature drifting above the validated 25°C ± 2°C range."
+  },
+  "evaluation": {
+    "categories": [
+      { "key": "machineOperation", "label": "Machine Operation", "weight": 20 },
+      { "key": "defectResponse", "label": "Defect Response Time", "weight": 20 },
+      { "key": "investigationQuality", "label": "Investigation / Impact Assessment", "weight": 20 },
+      { "key": "capaVerification", "label": "CAPA & Verification", "weight": 20 },
+      { "key": "understanding", "label": "Overall Process Understanding", "weight": 20 }
+    ]
+  },
+  "referenceData": {
+    "sopSummary": "This SOP defines the manufacturing process of Paracetamol 500 mg tablets using wet granulation. Wet granulation improves flow and compression qualities of the drug. The process is governed by strict GMP controls at each phase: Dispensing, Milling, Granulation, Drying, Blending, Compression, Coating, Inspection, and Packaging. Every critical process parameter (CPP) must remain in its validated range to ensure content uniformity, hardness, and dissolution rates.",
+    "criticalParameters": [
+      { "stage": "Dispensing", "parameter": "Weighing Accuracy", "range": "Target quantity ± 2.0%", "importance": "Ensures active ingredient dosage complies with pharmacopeial monographs (95%-105% label claim)." },
+      { "stage": "Milling", "parameter": "Mill Speed & Screen", "range": "1500 RPM & 60 mesh screen", "importance": "Controls particle size distribution (PSD) which impacts wet mass binding kinetics downstream." },
+      { "stage": "Granulation", "parameter": "Impeller Speed & Binder Flow", "range": "120 RPM & 20 mL/min", "importance": "Determines granule growth kinetics. Over-granulation leads to hard tablets with failing dissolution profiles." },
+      { "stage": "Drying", "parameter": "Fluid bed Inlet Temp", "range": "55°C (Moisture limit ≤ 3.2%)", "importance": "Avoids thermal degradation of Paracetamol (which occurs > 80°C) while reducing moisture to target." },
+      { "stage": "Blending", "parameter": "Blending Duration", "range": "60 seconds", "importance": "Over-blending with Magnesium Stearate creates a hydrophobic coating, causing dissolution failure." },
+      { "stage": "Compression", "parameter": "Punch Weight & Hardness", "range": "500 mg core tablet ± 2.0%", "importance": "Directly controls product potency, weight variation limits, and friability index." },
+      { "stage": "Coating", "parameter": "Pan Speed & Inlet Temp", "range": "8 RPM & 50°C", "importance": "Ensures uniform thickness of film coating, color consistency, and guards against peeling defects." }
+    ],
+    "regulatoryContext": "Adheres to ICH Q8 (Pharmaceutical Development), ICH Q9 (Quality Risk Management), and US FDA cGMP 21 CFR Part 211. Specifically, weighing integrity must align with 211.101, blending and uniformity validation with 211.110, and batch record data integrity with ALCOA+ rules.",
+    "commonDeviations": [
+      { "title": "Scale Out of Tolerance", "cause": "Improper scale calibration or operator load error." },
+      { "title": "Thermal Runaway during Milling", "cause": "Impairment of screen sieve or bearing degradation causing mechanical friction." },
+      { "title": "Hyper-lubrication in Blender", "cause": "Exceeding recommended mixing time after adding Magnesium Stearate." }
+    ]
+  },
+  "evaluationRubric": {
+    "vmCheckpoints": [
+      {
+        "stage": "Dispensing",
+        "field": "actualQty",
+        "expectedBehavior": "Weigh material within ±2.0% of the target weight (9.80 - 10.20 kg for API).",
+        "precondition": "value >= 9.8 && value <= 10.2",
+        "marks": 10
+      },
+      {
+        "stage": "Milling",
+        "field": "rpm",
+        "expectedBehavior": "Set process RPM speed to target (1500 RPM).",
+        "precondition": "value === 1500",
+        "marks": 5
+      },
+      {
+        "stage": "Milling",
+        "field": "screen",
+        "expectedBehavior": "Select the validated 60 mesh sieve screen.",
+        "precondition": "value === '60 mesh'",
+        "marks": 5
+      },
+      {
+        "stage": "Milling",
+        "field": "processingTime",
+        "expectedBehavior": "Set processing duration to target (60 seconds).",
+        "precondition": "value === 60",
+        "marks": 5
+      },
+      {
+        "stage": "Granulation",
+        "field": "speed",
+        "expectedBehavior": "Set granulator impeller speed to target (120 RPM).",
+        "precondition": "value === 120",
+        "marks": 5
+      },
+      {
+        "stage": "Granulation",
+        "field": "binderFlow",
+        "expectedBehavior": "Set binder spray pump flow rate to target (20 mL/min).",
+        "precondition": "value === 20",
+        "marks": 5
+      },
+      {
+        "stage": "Drying",
+        "field": "temperature",
+        "expectedBehavior": "Set dryer inlet temperature to target (55°C).",
+        "precondition": "value === 55",
+        "marks": 5
+      },
+      {
+        "stage": "Drying",
+        "field": "airflow",
+        "expectedBehavior": "Set dryer inlet air velocity flow to target (1200 m3/h).",
+        "precondition": "value === 1200",
+        "marks": 5
+      },
+      {
+        "stage": "Drying",
+        "field": "dryingTime",
+        "expectedBehavior": "Set drying limit timer to target (20 min).",
+        "precondition": "value === 20",
+        "marks": 5
+      },
+      {
+        "stage": "Blending",
+        "field": "rpm",
+        "expectedBehavior": "Set bin blender speed to target (18 RPM).",
+        "precondition": "value === 18",
+        "marks": 5
+      },
+      {
+        "stage": "Blending",
+        "field": "mixTime",
+        "expectedBehavior": "Set mixer duration timer to target (60 seconds).",
+        "precondition": "value === 60",
+        "marks": 5
+      },
+      {
+        "stage": "Compression",
+        "field": "speed",
+        "expectedBehavior": "Set press turret rotational speed to target (40 RPM).",
+        "precondition": "value === 40",
+        "marks": 5
+      },
+      {
+        "stage": "Compression",
+        "field": "targetWeight",
+        "expectedBehavior": "Set core tablet nominal weight to target (500 mg).",
+        "precondition": "value === 500",
+        "marks": 5
+      },
+      {
+        "stage": "Compression",
+        "field": "force",
+        "expectedBehavior": "Set punch compaction compression force to target (8 kN).",
+        "precondition": "value === 8",
+        "marks": 5
+      },
+      {
+        "stage": "Compression",
+        "field": "actualWeight",
+        "expectedBehavior": "Monitor and confirm Core tablet average weight remains within specification (490 - 510 mg).",
+        "precondition": "value >= 490 && value <= 510",
+        "marks": 10
+      },
+      {
+        "stage": "Coating",
+        "field": "panSpeed",
+        "expectedBehavior": "Set film coater pan speed to target (8 RPM).",
+        "precondition": "value === 8",
+        "marks": 5
+      },
+      {
+        "stage": "Coating",
+        "field": "temperature",
+        "expectedBehavior": "Set film coater drying inlet air temperature to target (50°C).",
+        "precondition": "value === 50",
+        "marks": 5
+      },
+      {
+        "stage": "Coating",
+        "field": "sprayRate",
+        "expectedBehavior": "Set coating spray suspension flow rate to target (80 mL/min).",
+        "precondition": "value === 80",
+        "marks": 5
+      },
+      {
+        "stage": "Coating",
+        "field": "airflow",
+        "expectedBehavior": "Set coater exhaust air flow rate to target (900 m3/h).",
+        "precondition": "value === 900",
+        "marks": 5
+      }
+    ]
+  }
+}
